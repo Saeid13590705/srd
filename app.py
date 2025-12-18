@@ -11,16 +11,17 @@ st.set_page_config(
 st.title("📊 داشبورد تحلیل کارنامه ترم اول ۱۴۰۴")
 st.markdown("---")
 
-# ----------------- بارگذاری فایل -----------------
+# ----------------- فایل -----------------
 FILE_NAME = "14040919_1300.xlsx"
 
-@st.cache_data
-def load_excel(file_name):
-    return pd.ExcelFile(file_name)
+# ----------------- بارگذاری لیست شیت‌ها -----------------
+try:
+    xls = pd.ExcelFile(FILE_NAME)
+except Exception as e:
+    st.error("❌ فایل Excel پیدا نشد یا قابل خواندن نیست")
+    st.stop()
 
-xls = load_excel(FILE_NAME)
-
-# ----------------- انتخاب پایه -----------------
+# ----------------- Sidebar -----------------
 with st.sidebar:
     st.header("⚙️ فیلترها")
 
@@ -29,12 +30,23 @@ with st.sidebar:
         xls.sheet_names
     )
 
-df = pd.read_excel(xls, sheet_name=selected_base)
+# ----------------- بارگذاری شیت انتخابی (cache امن) -----------------
+@st.cache_data
+def load_sheet(sheet_name):
+    return pd.read_excel(FILE_NAME, sheet_name=sheet_name)
 
-# ----------------- بررسی ستون کلاس -----------------
+df = load_sheet(selected_base)
+
+# ----------------- بررسی ستون‌ها -----------------
 if "کلاس" not in df.columns:
-    st.error("ستون «کلاس» در فایل وجود ندارد")
+    st.error("❌ ستون «کلاس» در فایل وجود ندارد")
     st.stop()
+
+if "نمره" not in df.columns:
+    st.error("❌ ستون «نمره» در فایل وجود ندارد")
+    st.stop()
+
+df["نمره"] = pd.to_numeric(df["نمره"], errors="coerce")
 
 # ----------------- انتخاب کلاس -----------------
 classes = sorted(df["کلاس"].dropna().unique())
@@ -46,46 +58,43 @@ with st.sidebar:
     )
 
 if selected_class != "همه کلاس‌ها":
-    df = df[df["کلاس"] == selected_class]
-
-# ----------------- بررسی ستون نمره -----------------
-if "نمره" not in df.columns:
-    st.error("ستون «نمره» در فایل وجود ندارد")
-    st.stop()
-
-df["نمره"] = pd.to_numeric(df["نمره"], errors="coerce")
+    df_filtered = df[df["کلاس"] == selected_class]
+else:
+    df_filtered = df.copy()
 
 # ----------------- شاخص‌های کلیدی -----------------
 col1, col2, col3 = st.columns(3)
 
 with col1:
-    st.metric("تعداد دانش‌آموزان", df.shape[0])
+    st.metric("تعداد دانش‌آموزان", df_filtered.shape[0])
 
 with col2:
-    st.metric("میانگین نمره", round(df["نمره"].mean(), 2))
+    st.metric("میانگین نمره", round(df_filtered["نمره"].mean(), 2))
 
 with col3:
-    st.metric("بیشترین نمره", df["نمره"].max())
+    st.metric("بیشترین نمره", df_filtered["نمره"].max())
 
 st.markdown("---")
 
-# ----------------- نمودارها -----------------
-tab1, tab2, tab3 = st.tabs(["📈 تحلیل نمرات", "🏫 مقایسه کلاس‌ها", "📋 جدول داده"])
+# ----------------- تب‌ها -----------------
+tab1, tab2, tab3 = st.tabs(
+    ["📈 تحلیل نمرات", "🏫 مقایسه کلاس‌ها", "📋 جدول داده"]
+)
 
+# ---------- تب ۱: توزیع نمرات ----------
 with tab1:
     fig_hist = px.histogram(
-        df,
+        df_filtered,
         x="نمره",
         nbins=10,
         title="توزیع نمرات"
     )
     st.plotly_chart(fig_hist, use_container_width=True)
 
+# ---------- تب ۲: مقایسه کلاس‌ها ----------
 with tab2:
-    df_all = pd.read_excel(xls, sheet_name=selected_base)
-
     avg_by_class = (
-        df_all.groupby("کلاس")["نمره"]
+        df.groupby("کلاس")["نمره"]
         .mean()
         .reset_index()
         .sort_values("نمره", ascending=False)
@@ -100,14 +109,16 @@ with tab2:
     )
     st.plotly_chart(fig_bar, use_container_width=True)
 
+# ---------- تب ۳: جدول ----------
 with tab3:
-    st.dataframe(df, use_container_width=True)
+    st.dataframe(df_filtered, use_container_width=True)
 
 # ----------------- دانلود خروجی -----------------
 st.markdown("---")
-csv = df.to_csv(index=False).encode("utf-8")
+
+csv = df_filtered.to_csv(index=False).encode("utf-8")
 st.download_button(
-    "⬇️ دانلود فایل CSV این فیلتر",
+    "⬇️ دانلود داده‌های فیلتر شده (CSV)",
     data=csv,
     file_name="report_filtered.csv",
     mime="text/csv"

@@ -38,13 +38,6 @@ def load_sheet(sheet_name):
 
 df = load_sheet(selected_base)
 
-# ----------------- نمایش اطلاعات اولیه -----------------
-with st.expander("🔍 مشاهده ساختار فایل"):
-    st.write(f"تعداد سطرها: {df.shape[0]}")
-    st.write(f"تعداد ستون‌ها: {df.shape[1]}")
-    st.write("نام ستون‌ها:", df.columns.tolist())
-    st.dataframe(df.head())
-
 # ----------------- شناسایی ستون‌های دروس -----------------
 # لیست دروس موجود در فایل
 possible_subjects = [
@@ -59,7 +52,7 @@ for col in df.columns:
     if col_str in possible_subjects:
         subject_columns.append(col_str)
 
-st.info(f"📚 دروس شناسایی شده: {subject_columns}")
+st.info(f"📚 دروس شناسایی شده ({len(subject_columns)} درس): {subject_columns}")
 
 if not subject_columns:
     st.error("❌ هیچ ستون درسی شناسایی نشد!")
@@ -74,13 +67,13 @@ for col in subject_columns:
 df['میانگین نمرات'] = df[subject_columns].mean(axis=1).round(2)
 
 # حذف سطرهای بدون نمره
-df = df.dropna(subset=['میانگین نمرات'])
+df_clean = df.dropna(subset=['میانگین نمرات']).copy()
 
 # ----------------- شناسایی ستون کلاس -----------------
 class_keywords = ['کلاس', 'class', 'رده']
 class_column = None
 
-for col in df.columns:
+for col in df_clean.columns:
     col_str = str(col).strip().lower()
     for keyword in class_keywords:
         if keyword in col_str:
@@ -91,19 +84,19 @@ for col in df.columns:
 
 if class_column is None:
     # استفاده از اولین ستون غیرعددی
-    for col in df.columns:
+    for col in df_clean.columns:
         if col not in subject_columns and col != 'میانگین نمرات':
             class_column = col
             break
 
 if class_column is None:
-    class_column = df.columns[0]
+    class_column = df_clean.columns[0]
 
 # پاکسازی مقادیر ستون کلاس
-df[class_column] = df[class_column].astype(str).str.strip()
+df_clean[class_column] = df_clean[class_column].astype(str).str.strip()
 
 # ----------------- انتخاب کلاس -----------------
-classes = sorted(df[class_column].dropna().unique())
+classes = sorted(df_clean[class_column].dropna().unique())
 
 with st.sidebar:
     selected_class = st.selectbox(
@@ -112,9 +105,22 @@ with st.sidebar:
     )
 
 if selected_class != "همه کلاس‌ها":
-    df_filtered = df[df[class_column] == selected_class].copy()
+    df_filtered = df_clean[df_clean[class_column] == selected_class].copy()
 else:
-    df_filtered = df.copy()
+    df_filtered = df_clean.copy()
+
+# ----------------- نمایش اطلاعات اولیه -----------------
+with st.expander("📄 مشاهده ساختار فایل"):
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("تعداد کل سطرها", df.shape[0])
+    with col2:
+        st.metric("تعداد سطرهای تمیز", df_clean.shape[0])
+    with col3:
+        st.metric("تعداد دروس", len(subject_columns))
+    
+    st.write("نمونه‌ای از داده‌ها:")
+    st.dataframe(df_filtered.head())
 
 # ----------------- شاخص‌های کلیدی -----------------
 st.subheader("📊 شاخص‌های کلیدی")
@@ -170,54 +176,75 @@ with col1:
     st.plotly_chart(fig_subjects, use_container_width=True)
 
 with col2:
-    # جدول میانگین دروس
+    # جدول میانگین دروس (بدون background_gradient)
+    st.write("میانگین نمره هر درس:")
     st.dataframe(
-        subject_df.style.background_gradient(
-            subset=['میانگین نمره'], 
-            cmap='YlOrRd'
-        ),
-        use_container_width=True
+        subject_df.round(2),
+        use_container_width=True,
+        hide_index=True
     )
 
 # ----------------- تب‌ها -----------------
 tab1, tab2, tab3, tab4 = st.tabs(
-    ["📈 توزیع نمرات", "🏫 مقایسه کلاس‌ها", "🥇 رتبه‌بندی دانش‌آموزان", "📋 جدول کامل"]
+    ["📈 توزیع نمرات", "🏫 مقایسه کلاس‌ها", "🥇 رتبه‌بندی", "📋 جدول کامل"]
 )
 
 # ---------- تب ۱: توزیع نمرات ----------
 with tab1:
-    fig_hist = px.histogram(
-        df_filtered,
-        x='میانگین نمرات',
-        nbins=10,
-        title='توزیع میانگین نمرات دانش‌آموزان',
-        color_discrete_sequence=['#636EFA']
-    )
-    fig_hist.update_layout(
-        xaxis_title='میانگین نمرات',
-        yaxis_title='تعداد دانش‌آموزان'
-    )
-    st.plotly_chart(fig_hist, use_container_width=True)
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        fig_hist = px.histogram(
+            df_filtered,
+            x='میانگین نمرات',
+            nbins=10,
+            title='توزیع میانگین نمرات',
+            color_discrete_sequence=['#636EFA']
+        )
+        fig_hist.update_layout(
+            xaxis_title='میانگین نمرات',
+            yaxis_title='تعداد دانش‌آموزان'
+        )
+        st.plotly_chart(fig_hist, use_container_width=True)
+    
+    with col2:
+        fig_box = px.box(
+            df_filtered,
+            y='میانگین نمرات',
+            title='پراکندگی نمرات',
+            points='all'
+        )
+        st.plotly_chart(fig_box, use_container_width=True)
 
 # ---------- تب ۲: مقایسه کلاس‌ها ----------
 with tab2:
     avg_by_class = (
-        df.groupby(class_column)['میانگین نمرات']
-        .mean()
+        df_clean.groupby(class_column)['میانگین نمرات']
+        .agg(['mean', 'count', 'min', 'max'])
+        .round(2)
         .reset_index()
-        .sort_values('میانگین نمرات', ascending=False)
+        .sort_values('mean', ascending=False)
     )
     
-    fig_bar = px.bar(
-        avg_by_class,
-        x=class_column,
-        y='میانگین نمرات',
-        title='میانگین نمره هر کلاس',
-        text_auto='.2f',
-        color='میانگین نمرات',
-        color_continuous_scale='plasma'
-    )
-    st.plotly_chart(fig_bar, use_container_width=True)
+    avg_by_class.columns = ['کلاس', 'میانگین', 'تعداد', 'کمترین', 'بیشترین']
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        fig_bar = px.bar(
+            avg_by_class,
+            x='کلاس',
+            y='میانگین',
+            title='میانگین نمره هر کلاس',
+            text='میانگین',
+            color='میانگین',
+            color_continuous_scale='plasma'
+        )
+        st.plotly_chart(fig_bar, use_container_width=True)
+    
+    with col2:
+        st.write("آمار کلاس‌ها:")
+        st.dataframe(avg_by_class, use_container_width=True, hide_index=True)
 
 # ---------- تب ۳: رتبه‌بندی ----------
 with tab3:
@@ -243,71 +270,107 @@ with tab3:
     ranking_df = ranking_df.sort_values('میانگین نمرات', ascending=False)
     ranking_df['رتبه'] = range(1, len(ranking_df) + 1)
     
-    # انتخاب ستون‌های نمایش
-    display_cols = ['رتبه', 'نام کامل', 'میانگین نمرات'] + subject_columns[:5]
+    # جدول رتبه‌بندی
+    st.write("رتبه‌بندی دانش‌آموزان:")
+    display_cols = ['رتبه', 'نام کامل', 'میانگین نمرات'] + subject_columns[:3]
     st.dataframe(
-        ranking_df[display_cols].head(20),
-        use_container_width=True
+        ranking_df[display_cols],
+        use_container_width=True,
+        hide_index=True
     )
     
-    # نمودار رتبه‌بندی
-    fig_rank = px.bar(
-        ranking_df.head(10),
+    # نمایش ۵ نفر برتر
+    st.write("🏆 پنج دانش‌آموز برتر:")
+    top_5 = ranking_df.head(5)
+    fig_top = px.bar(
+        top_5,
         x='نام کامل',
         y='میانگین نمرات',
-        title='ده دانش‌آموز برتر',
-        color='میانگین نمرات',
+        title='پنج دانش‌آموز برتر',
         text='میانگین نمرات',
+        color='میانگین نمرات',
         color_continuous_scale='RdYlGn'
     )
-    fig_rank.update_layout(xaxis_tickangle=-45)
-    st.plotly_chart(fig_rank, use_container_width=True)
+    fig_top.update_layout(xaxis_tickangle=-45)
+    st.plotly_chart(fig_top, use_container_width=True)
 
 # ---------- تب ۴: جدول کامل ----------
 with tab4:
-    # انتخاب ستون‌های مهم برای نمایش
-    important_cols = [class_column]
-    for col in ['نام', 'نام خانوادگی', 'میانگین نمرات']:
-        if col in df_filtered.columns:
-            important_cols.append(col)
+    st.write(f"داده‌های کلاس: {selected_class}")
     
-    display_df = df_filtered[important_cols + subject_columns]
-    st.dataframe(display_df, use_container_width=True)
+    # انتخاب ستون‌های مهم برای نمایش
+    display_cols = [class_column, 'میانگین نمرات']
+    
+    # اضافه کردن ستون‌های نام
+    for col in ['نام', 'نام خانوادگی']:
+        if col in df_filtered.columns:
+            display_cols.append(col)
+    
+    # اضافه کردن ۵ درس اول
+    display_cols += subject_columns[:5]
+    
+    st.dataframe(
+        df_filtered[display_cols],
+        use_container_width=True
+    )
 
 # ----------------- دانلود خروجی -----------------
 st.markdown("---")
-st.subheader("📥 خروجی")
+st.subheader("📥 دانلود خروجی")
 
-col1, col2 = st.columns(2)
+col1, col2, col3 = st.columns(3)
 
 with col1:
     # دانلود داده‌های فیلتر شده
-    csv = df_filtered.to_csv(index=False, encoding='utf-8-sig')
+    csv_data = df_filtered.to_csv(index=False, encoding='utf-8-sig')
     st.download_button(
-        "⬇️ دانلود داده‌های فیلتر شده (CSV)",
-        data=csv,
+        "⬇️ دانلود داده‌های فیلتر شده",
+        data=csv_data,
         file_name=f"کارنامه_{selected_base}_{selected_class}.csv",
-        mime="text/csv",
-        help="دانلود اطلاعات کامل دانش‌آموزان"
+        mime="text/csv"
     )
 
 with col2:
-    # دانلود خلاصه آمار
-    summary_data = {
-        'کلاس': [selected_class],
-        'تعداد دانش‌آموز': [len(df_filtered)],
-        'میانگین کل': [avg_score],
-        'بیشترین نمره': [max_score],
-        'کمترین نمره': [min_score]
-    }
-    summary_df = pd.DataFrame(summary_data)
-    summary_csv = summary_df.to_csv(index=False, encoding='utf-8-sig')
+    # دانلود آمار دروس
+    subject_stats_csv = subject_df.to_csv(index=False, encoding='utf-8-sig')
     st.download_button(
-        "⬇️ دانلود خلاصه آمار (CSV)",
-        data=summary_csv,
-        file_name=f"خلاصه_آمار_{selected_base}_{selected_class}.csv",
-        mime="text/csv",
-        help="دانلود خلاصه آمار کلاس"
+        "⬇️ دانلود آمار دروس",
+        data=subject_stats_csv,
+        file_name=f"آمار_دروس_{selected_base}_{selected_class}.csv",
+        mime="text/csv"
     )
 
-st.success("✅ داشبورد با موفقیت ساخته شد!")
+with col3:
+    # دانلود رتبه‌بندی
+    ranking_csv = ranking_df[['رتبه', 'نام کامل', 'میانگین نمرات'] + subject_columns].to_csv(
+        index=False, encoding='utf-8-sig'
+    )
+    st.download_button(
+        "⬇️ دانلود رتبه‌بندی",
+        data=ranking_csv,
+        file_name=f"رتبه‌بندی_{selected_base}_{selected_class}.csv",
+        mime="text/csv"
+    )
+
+# ----------------- نکات پایانی -----------------
+st.markdown("---")
+with st.expander("ℹ️ راهنمای استفاده"):
+    st.markdown("""
+    ### نحوه استفاده از داشبورد:
+    
+    1. **انتخاب پایه**: در نوار کناری، پایه مورد نظر را انتخاب کنید
+    2. **انتخاب کلاس**: می‌توانید یک کلاس خاص یا "همه کلاس‌ها" را انتخاب کنید
+    3. **تحلیل داده‌ها**: داده‌ها در ۴ تب مختلف تحلیل شده‌اند:
+       - **تب ۱**: توزیع نمرات و نمودار جعبه‌ای
+       - **تب ۲**: مقایسه عملکرد کلاس‌ها
+       - **تب ۳**: رتبه‌بندی دانش‌آموزان
+       - **تب ۴**: جدول کامل داده‌ها
+    4. **دانلود**: می‌توانید نتایج را در قالب CSV دانلود کنید
+    
+    ### نکات:
+    - میانگین نمرات از میانگین تمام دروس محاسبه می‌شود
+    - مقادیر خالی در محاسبات در نظر گرفته نمی‌شوند
+    - برای بهترین تجربه، از مرورگرهای مدرن استفاده کنید
+    """)
+
+st.success("✅ داشبورد با موفقیت بارگذاری شد!")
